@@ -1,10 +1,13 @@
 from bluetooth import *
 from select import *
 from threading import Thread, Lock
-import shelve, time, pigpio, json
+import shelve, time, json
 from Queue import Queue
 
-import RPi.GPIO as GPIO
+device = sys.argv[1] if len(sys.argv) > 1 else "pi"
+if "pi" in device:
+  import RPi.GPIO as GPIO
+  import pigpio
 
 def send(receiver, message):
   receiver.queue.put(message)
@@ -28,8 +31,9 @@ class LEDController(ActiveThread):
     self.BLUE = blue
     self.RED = red
     self.GREEN = green
-    self.pi = pigpio.pi()
-    self.alloff()
+    if "pi" in device:
+      self.pi = pigpio.pi()
+      self.alloff()
     ActiveThread.__init__(self)
 
   def alloff(self):
@@ -49,22 +53,34 @@ class PushButtonInterrupt(object):
     self.commandcenter = commandcenter
 
   def __enter__(self):
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    if "debug" not in device:
+      GPIO.setmode(GPIO.BCM)
+      GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+      GPIO.add_event_detect(
+          self.inputport,
+          GPIO.FALLING,
+          callback = self.signalreconnect,
+          bouncetime=200)
+    else:
+      self.add_keyb_event(self.signalreconnect)
     self.stop = False
-    GPIO.add_event_detect(
-        self.inputport,
-        GPIO.FALLING,
-        callback = self.signalreconnect,
-        bouncetime=200)
 
+  def waitkey(self):
+    raw_input()
+
+  def add_keyb_event(self, callback):
+    Thread(target = self.waitkey).start()
+  
   def signalreconnect(self):
     send(self.commandcenter, ["pushbutton", self.inputport])
-    GPIO.add_event_detect(
-        self.inputport,
-        GPIO.FALLING,
-        callback = self.signalreconnect,
-        bouncetime=200)
+    if "debug" not in device:
+      GPIO.add_event_detect(
+          self.inputport,
+          GPIO.FALLING,
+          callback = self.signalreconnect,
+          bouncetime=200)
+    else:
+      self.add_keyb_event(self.signalreconnect)
 
   def __exit__(self, type, value, traceback):
     GPIO.remove_event_detect(channel)
@@ -231,6 +247,7 @@ FILEPATH = "lastknown.shelve"
 ADVERTTIMEOUT = 20
 SILENTTIMEOUT = 1
 PORTNUM = 3
+BUTTONPUSHPORT = 23
 commandcenter = CommandCenter(PUSHBUTTONPORT)
 LEDcon = LEDController(RED, GREEN, BLUE)
 blcreator = BluetoothConnectionCreator(
@@ -240,7 +257,8 @@ commandcenter.register(blcomm, blcreator, LEDcon)
 stop = False
 while not stop:
   try:
-    send(commandcenter, ["start"])
+    with PushButtonInterrupt(commandcenter, BUTTONPUSHPORT) as pushb:
+      send(commandcenter, ["start"])
     commandcenter.join()
   except KeyboardInterrupt:
     break
