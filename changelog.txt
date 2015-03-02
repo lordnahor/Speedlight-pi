@@ -1,0 +1,6 @@
+****************************
+2nd March 2015
+Author: Rohan
+Change: Initial commit, Has speedlight server working and
+        a test script to see if advertise service works.
+***************************
