@@ -4,3 +4,7 @@ Author: Rohan
 Change: Initial commit, Has speedlight server working and
         a test script to see if advertise service works.
 ***************************
+2nd Match 2015 16:43PM
+Author: Rohan
+Change: Debug modes.
+***************************

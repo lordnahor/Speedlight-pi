@@ -62,14 +62,21 @@ class PushButtonInterrupt(object):
           callback = self.signalreconnect,
           bouncetime=200)
     else:
+      self.debugthread = Thread(target = self.waitkey)
+      self.debugthread.setDaemon(True)
+      self.debugging = True
       self.add_keyb_event(self.signalreconnect)
     self.stop = False
 
-  def waitkey(self):
+  def waitkey(self, success):
     raw_input()
+    if self.debugging:
+      print "Button pressed"
+      success()
+
 
   def add_keyb_event(self, callback):
-    Thread(target = self.waitkey).start()
+    self.debugthread.start()
   
   def signalreconnect(self):
     send(self.commandcenter, ["pushbutton", self.inputport])
@@ -83,7 +90,10 @@ class PushButtonInterrupt(object):
       self.add_keyb_event(self.signalreconnect)
 
   def __exit__(self, type, value, traceback):
-    GPIO.remove_event_detect(channel)
+    if "debug" not in device:
+      GPIO.remove_event_detect(channel)
+    else:
+      self.debugging = False
 
 class BluetoothConnectionCreator(ActiveThread):
   def __init__(
@@ -134,6 +144,7 @@ class BluetoothConnectionCreator(ActiveThread):
       silent = self.silent
       if not silent:
         self.advertise(server_sock)
+        print "Advertized"
       timeout = self.adverttimeout if not silent else self.silenttimeout
       readable, writable, excepts = select([server_sock], [], [], timeout)
       if server_sock in readable:
@@ -156,6 +167,7 @@ class BluetoothConnectionCreator(ActiveThread):
   def loud_reconnect(self):
     with self.silentlock:
       self.silent = False
+    print "Loud reconnect"
 
 class BluetoothCommunicator(ActiveThread):
   def __init__(self, commandcenter, connectionsize):
