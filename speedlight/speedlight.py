@@ -62,8 +62,6 @@ class PushButtonInterrupt(object):
           callback = self.signalreconnect,
           bouncetime=200)
     else:
-      self.debugthread = Thread(target = self.waitkey)
-      self.debugthread.setDaemon(True)
       self.debugging = True
       self.add_keyb_event(self.signalreconnect)
     self.stop = False
@@ -76,6 +74,8 @@ class PushButtonInterrupt(object):
 
 
   def add_keyb_event(self, callback):
+    self.debugthread = Thread(target = self.waitkey, args = (callback,))
+    self.debugthread.setDaemon(True)
     self.debugthread.start()
   
   def signalreconnect(self):
