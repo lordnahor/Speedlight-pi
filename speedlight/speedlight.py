@@ -61,7 +61,10 @@ class ActiveThread(Thread):
     while not self._stop:
       message = self.queue.get()
       print "Executing: ", message[0], type(self)
-      self._dispatch(message)      if message[0] == "die":        self._stop = True
+      self._dispatch(message)
+      if message[0] == "die":
+        self._stop = Tru
+
 class LEDController(ActiveThread):
   def __init__(self, red, green, blue):
     self.BLUE = blue
