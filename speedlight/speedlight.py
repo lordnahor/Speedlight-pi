@@ -3,11 +3,15 @@ from select import *
 from threading import Thread, Lock
 import shelve, time, json
 from Queue import Queue
+import hashlib
 
 DEVICE = sys.argv[1] if len(sys.argv) > 1 else "pi"
 if "pi" in DEVICE:
   import RPi.GPIO as GPIO
   import pigpio
+
+def uberhash(s):
+  return hashlib.sha1(hashlib.md5(s).hexdigest()).hexdigest()
 
 def send(receiver, message):
   receiver.queue.put(message)
@@ -137,38 +141,50 @@ class BluetoothConnectionCreator(ActiveThread):
     with self.loopinglock:
       self.looping = False
     self.connectionThread.join()
+    
+  def handshake(self, client_sock):
+    readable, writable, excepts = select([client_sock], [], [], 5)
+    if client_sock in readable:
+      data = client_sock.recv(1024)
+      h = uberhash(data)
+      client_sock.send(h)
+      readable, writable, excepts = select([client_sock], [], [], 5)
+      if client_sock in readable:
+        data = client_sock.recv(1024)
+        if uberhash(h) == data:
+          return True
+    client_sock.close()
+    return False
   
   def make_connection(self):
     server_sock = BluetoothSocket( RFCOMM )
     server_sock.setblocking(False)
     server_sock.bind(( " " , self.portnum))
     server_sock.listen(1)
+    self.advertise(server_sock)
+    print "advertising"
     with self.loopinglock:
       self.looping = True
     while self.looping:
       silent = self.silent
-      if not silent:
-        try:
-          self.advertise(server_sock)
-          print "Advertized"
-        except Exception:
-          print "skip advertise, already public"
-      timeout = self.adverttimeout if not silent else self.silenttimeout
+      timeout = self.silenttimeout
       readable, writable, excepts = select([server_sock], [], [], timeout)
       if server_sock in readable:
         client_sock, client_info = server_sock.accept()
         client_sock.setblocking(False)
         if silent:
           if client_info == self.lastknown:
-            send(self.commandcenter, ["connected", client_sock])
+            if self.handshake(client_sock):
+              send(self.commandcenter, ["connected", client_sock])
           else:
+            client_sock.send("Im paired for life! But you know, you could still press that button. You know you want to.")
             client_sock.close()
         else:
-          send(self.commandcenter, ["connected", client_sock])
+          if self.handshake(client_sock):
+            send(self.commandcenter, ["connected", client_sock])
           self.shelvefile["last"] = client_info
           self.shelvefile.sync()
       if not silent and self.shelvefile["last"]:
-        stop_advertising(server_sock)
         with self.silentlock:
           self.silent = True
     server_sock.close()
