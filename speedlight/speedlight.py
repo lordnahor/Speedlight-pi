@@ -9,6 +9,42 @@ if "pi" in device:
   import RPi.GPIO as GPIO
   import pigpio
 
+class _Getch:
+    """Gets a single character from standard input.  Does not echo to the
+screen."""
+    def __init__(self):
+        try:
+            self.impl = _GetchWindows()
+        except ImportError:
+            self.impl = _GetchUnix()
+
+    def __call__(self): return self.impl()
+
+
+class _GetchUnix:
+    def __init__(self):
+        import tty, sys
+
+    def __call__(self):
+        import sys, tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+
+class _GetchWindows:
+    def __init__(self):
+        import msvcrt
+
+    def __call__(self):
+        import msvcrt
+        return msvcrt.getch()
+
 def send(receiver, message):
   receiver.queue.put(message)
 
@@ -67,7 +103,7 @@ class PushButtonInterrupt(object):
     self.stop = False
 
   def waitkey(self, success):
-    raw_input()
+    _Getch()
     if self.debugging:
       print "Button pressed"
       success()
@@ -91,7 +127,7 @@ class PushButtonInterrupt(object):
 
   def __exit__(self, type, value, traceback):
     if "debug" not in device:
-      GPIO.remove_event_detect(channel)
+      GPIO.remove_event_detect(self.inputport)
     else:
       self.debugging = False
 
@@ -123,7 +159,7 @@ class BluetoothConnectionCreator(ActiveThread):
   def advertise(self, server_sock):
     advertise_service(server_sock,
           "SpeedLight", 
-          service_classes = [SERIAL_PORT_CLASS],
+          service_classes = ["059c01eb-feaa-0e13-ffc4-f5d6f3be76d9"],
           profiles = [SERIAL_PORT_PROFILE],
           provider = "Fruitmill",
           description= "Use this while driving to Live long and prosper.")
@@ -143,8 +179,11 @@ class BluetoothConnectionCreator(ActiveThread):
     while self.looping:
       silent = self.silent
       if not silent:
-        self.advertise(server_sock)
-        print "Advertized"
+        try:
+          self.advertise(server_sock)
+          print "Advertized"
+        except Exception:
+          print "skip advertise, already public"
       timeout = self.adverttimeout if not silent else self.silenttimeout
       readable, writable, excepts = select([server_sock], [], [], timeout)
       if server_sock in readable:
@@ -159,9 +198,10 @@ class BluetoothConnectionCreator(ActiveThread):
           send(self.commandcenter, ["connected", client_sock])
           self.shelvefile["last"] = client_info
       if not silent:
-        stop_advertising(server_sock)
-        with self.silentlock:
-          self.silent = True
+#        stop_advertising(server_sock)
+        print "looping around"
+#        with self.silentlock:
+#          self.silent = True
     server_sock.close()
 
   def loud_reconnect(self):
@@ -194,17 +234,27 @@ class BluetoothCommunicator(ActiveThread):
       old_sock = self.client_sock
       self.client_sock = client_sock
       self.established = True
-    old_sock.close()
+    if old_sock:
+      old_sock.close()
 
   def get_and_transfer(self):
     while self.active:
       if self.established and self.client_sock != None:
+        print "established"
         with self.client_sock_lock:
           readable, writable, excepts = select([self.client_sock], [], [], 1)
           if self.client_sock in readable:
-            data = self.client_sock.recv(self.connectionsize)
-            if data:
-              send(self.commandcenter, ["execute", data])
+            print "reading data"
+            try:
+              data = self.client_sock.recv(self.connectionsize)
+              if data:
+                print "data received", data
+                send(self.commandcenter, ["execute", data])
+            except BluetoothError:
+              print "Device closed the socket"
+              self.established = False
+              self.client_sock.close()
+              self.client_sock = None
       time.sleep(0.01)
                
   def stop_working(self):
