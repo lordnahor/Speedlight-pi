@@ -4,46 +4,10 @@ from threading import Thread, Lock
 import shelve, time, json
 from Queue import Queue
 
-device = sys.argv[1] if len(sys.argv) > 1 else "pi"
-if "pi" in device:
+DEVICE = sys.argv[1] if len(sys.argv) > 1 else "pi"
+if "pi" in DEVICE:
   import RPi.GPIO as GPIO
   import pigpio
-
-class _Getch:
-    """Gets a single character from standard input.  Does not echo to the
-screen."""
-    def __init__(self):
-        try:
-            self.impl = _GetchWindows()
-        except ImportError:
-            self.impl = _GetchUnix()
-
-    def __call__(self): return self.impl()
-
-
-class _GetchUnix:
-    def __init__(self):
-        import tty, sys
-
-    def __call__(self):
-        import sys, tty, termios
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-
-
-class _GetchWindows:
-    def __init__(self):
-        import msvcrt
-
-    def __call__(self):
-        import msvcrt
-        return msvcrt.getch()
 
 def send(receiver, message):
   receiver.queue.put(message)
@@ -70,7 +34,7 @@ class LEDController(ActiveThread):
     self.BLUE = blue
     self.RED = red
     self.GREEN = green
-    if "pi" in device:
+    if "pi" in DEVICE:
       self.pi = pigpio.pi()
       self.alloff()
     ActiveThread.__init__(self)
@@ -92,7 +56,7 @@ class PushButtonInterrupt(object):
     self.commandcenter = commandcenter
 
   def __enter__(self):
-    if "debug" not in device:
+    if "debug" not in DEVICE:
       GPIO.setmode(GPIO.BCM)
       GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_UP)
       GPIO.add_event_detect(
@@ -106,7 +70,7 @@ class PushButtonInterrupt(object):
     self.stop = False
 
   def waitkey(self, success):
-    _Getch()
+    raw_input()
     if self.debugging:
       print "Button pressed"
       success()
@@ -119,7 +83,7 @@ class PushButtonInterrupt(object):
   
   def signalreconnect(self):
     send(self.commandcenter, ["pushbutton", self.inputport])
-    if "debug" not in device:
+    if "debug" not in DEVICE:
       GPIO.add_event_detect(
           self.inputport,
           GPIO.FALLING,
@@ -129,7 +93,7 @@ class PushButtonInterrupt(object):
       self.add_keyb_event(self.signalreconnect)
 
   def __exit__(self, type, value, traceback):
-    if "debug" not in device:
+    if "debug" not in DEVICE:
       GPIO.remove_event_detect(self.inputport)
     else:
       self.debugging = False
@@ -139,6 +103,7 @@ class BluetoothConnectionCreator(ActiveThread):
       self, commandcenter, filepath, adverttimeout, silenttimeout, portnum):
     self.shelvefile = shelve.open(filepath)
     self.lastknown = self.shelvefile.setdefault("last", None)
+    self.shelvefile.sync()
     self.adverttimeout = adverttimeout
     self.silenttimeout = silenttimeout
     self.looping = False
@@ -165,7 +130,7 @@ class BluetoothConnectionCreator(ActiveThread):
           service_classes = ["059c01eb-feaa-0e13-ffc4-f5d6f3be76d9"],
           profiles = [SERIAL_PORT_PROFILE],
           provider = "Fruitmill",
-          description= "Use this while driving to Live long and prosper.")
+          description= "Use this while driving to Live long and Prosper.")
 
   def stop_poll(self):
     with self.loopinglock:
@@ -200,11 +165,11 @@ class BluetoothConnectionCreator(ActiveThread):
         else:
           send(self.commandcenter, ["connected", client_sock])
           self.shelvefile["last"] = client_info
-      if not silent:
-#        stop_advertising(server_sock)
-        print "looping around"
-#        with self.silentlock:
-#          self.silent = True
+          self.shelvefile.sync()
+      if not silent and self.shelvefile["last"]:
+        stop_advertising(server_sock)
+        with self.silentlock:
+          self.silent = True
     server_sock.close()
 
   def loud_reconnect(self):
