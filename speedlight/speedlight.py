@@ -70,6 +70,7 @@ class PushButtonInterrupt(object):
     self.stop = False
 
   def waitkey(self, success):
+    print "waiting for raw input"
     raw_input()
     if self.debugging:
       print "Button pressed"
