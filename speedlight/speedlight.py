@@ -45,8 +45,8 @@ class LEDController(ActiveThread):
 
   def led_color(self, rVal, gVal, bVal):
     self.pi.set_PWM_dutycycle(self.RED, rVal)
-    self.pi.set_PWM_dutycycle(self.GREEN, bVal)
-    self.pi.set_PWM_dutycycle(self.BLUE, gVal)       
+    self.pi.set_PWM_dutycycle(self.GREEN, gVal)
+    self.pi.set_PWM_dutycycle(self.BLUE, bVal)       
 
   def _dispatch(self, message):
     print message
