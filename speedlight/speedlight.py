@@ -43,29 +43,16 @@ class LEDController(ActiveThread):
       self.alloff()
     ActiveThread.__init__(self)
 
-  def alloff(self):
-    self.redon = False
-    self.greenon = False
-    self.blueon = False
-    self.pi.set_PWM_dutycycle(self.RED, 0)
-    self.pi.set_PWM_dutycycle(self.BLUE, 0)
-    self.pi.set_PWM_dutycycle(self.GREEN, 0)
-
-  def lightUp(self, rVal, gVal, bVal):
-    self.redOn = True
-    self.greenOn = True
-    self.blueOn = True
+  def led_color(self, rVal, gVal, bVal):
     self.pi.set_PWM_dutycycle(self.RED, rVal)
     self.pi.set_PWM_dutycycle(self.BLUE, gVal)
     self.pi.set_PWM_dutycycle(self.GREEN, bVal)   
 
   def _dispatch(self, message):
     print message
-    if message[0] == "led_on":
+    if message[0] == "led_color":
       rVal, gVal, bVal = message[1]
-      self.lightUp(rVal, gVal, bVal)
-    elif message[0] == "led_off":
-      self.alloff()
+      self.led_color(rVal, gVal, bVal)
 
 class PushButtonInterrupt(object):
   def __init__(self, commandcenter, inputport):
