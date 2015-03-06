@@ -230,6 +230,7 @@ class BluetoothCommunicator(ActiveThread):
       old_sock.close()
 
   def get_and_transfer(self):
+    olddata = ""
     while self.active:
       if self.established and self.client_sock != None:
         print "established"
@@ -238,10 +239,20 @@ class BluetoothCommunicator(ActiveThread):
           if self.client_sock in readable:
             print "reading data"
             try:
-              data = self.client_sock.recv(self.connectionsize)
+              data = olddata + self.client_sock.recv(self.connectionsize)
               if data:
                 print "data received", data
-                send(self.commandcenter, ["execute", data])
+                splits = data.split(";")
+                for item in splits[:-1]:
+                  if item:
+                    send(self.commandcenter, ["execute", item])
+                last = splits[-1]
+                try:
+                  json.loads(last)
+                  send(self.commandcenter, ["execute", last])
+                  olddata = ""
+                except ValueError:
+                  olddata = last
             except BluetoothError:
               print "Device closed the socket"
               self.established = False
