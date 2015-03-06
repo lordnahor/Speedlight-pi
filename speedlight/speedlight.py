@@ -40,7 +40,7 @@ class LEDController(ActiveThread):
     self.GREEN = green
     if "pi" in DEVICE:
       self.pi = pigpio.pi()
-      self.alloff()
+      self.led_color(0, 0, 0)
     ActiveThread.__init__(self)
 
   def led_color(self, rVal, gVal, bVal):
