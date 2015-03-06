@@ -101,8 +101,8 @@ class PushButtonInterrupt(object):
     self.debugthread.setDaemon(True)
     self.debugthread.start()
   
-  def signalreconnect(self):
-    send(self.commandcenter, ["pushbutton", self.inputport])
+  def signalreconnect(self, channel):
+    send(self.commandcenter, ["pushbutton", channel])
     if "debug" not in DEVICE:
       GPIO.add_event_detect(
           self.inputport,
