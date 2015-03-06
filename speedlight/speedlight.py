@@ -176,6 +176,7 @@ class BluetoothConnectionCreator(ActiveThread):
       timeout = self.silenttimeout if silent else self.adverttimeout
       readable, writable, excepts = select([server_sock], [], [], timeout)
       if server_sock in readable:
+        silent = self.silent
         client_sock, client_info = server_sock.accept()
         client_sock.setblocking(False)
         if silent:
