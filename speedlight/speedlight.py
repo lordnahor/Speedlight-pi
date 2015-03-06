@@ -186,7 +186,7 @@ class BluetoothConnectionCreator(ActiveThread):
       self.looping = True
     while self.looping:
       silent = self.silent
-      timeout = self.silenttimeout
+      timeout = self.silenttimeout if silent else self.adverttimeout
       readable, writable, excepts = select([server_sock], [], [], timeout)
       if server_sock in readable:
         client_sock, client_info = server_sock.accept()
@@ -210,6 +210,7 @@ class BluetoothConnectionCreator(ActiveThread):
 
   def loud_reconnect(self):
     with self.silentlock:
+      print "gong back to silent"
       self.silent = False
     print "Loud reconnect"
 
