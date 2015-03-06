@@ -76,15 +76,17 @@ class PushButtonInterrupt(object):
     if "debug" not in DEVICE:
       GPIO.setmode(GPIO.BCM)
       GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+      print "Added event detect"
       GPIO.add_event_detect(
           self.inputport,
-          GPIO.FALLING,
+          GPIO.RISING,
           callback = self.signalreconnect,
           bouncetime=200)
     else:
       self.debugging = True
       self.add_keyb_event(self.signalreconnect)
     self.stop = False
+    return self
 
   def waitkey(self, success):
     print "waiting for raw input"
@@ -112,6 +114,7 @@ class PushButtonInterrupt(object):
 
   def __exit__(self, type, value, traceback):
     if "debug" not in DEVICE:
+      print "Stopping the detect"
       GPIO.remove_event_detect(self.inputport)
     else:
       self.debugging = False
