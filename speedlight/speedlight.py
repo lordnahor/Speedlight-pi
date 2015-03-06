@@ -3,11 +3,15 @@ from select import *
 from threading import Thread, Lock
 import shelve, time, json
 from Queue import Queue
+import hashlib
 
-device = sys.argv[1] if len(sys.argv) > 1 else "pi"
-if "pi" in device:
+DEVICE = sys.argv[1] if len(sys.argv) > 1 else "pi"
+if "pi" in DEVICE:
   import RPi.GPIO as GPIO
   import pigpio
+
+def uberhash(s):
+  return hashlib.sha1(hashlib.md5(s).hexdigest()).hexdigest()
 
 def send(receiver, message):
   receiver.queue.put(message)
@@ -27,42 +31,28 @@ class ActiveThread(Thread):
       print "Executing: ", message[0], type(self)
       self._dispatch(message)
       if message[0] == "die":
-        self._stop = True
+        self._stop = Tru
 
 class LEDController(ActiveThread):
   def __init__(self, red, green, blue):
     self.BLUE = blue
     self.RED = red
     self.GREEN = green
-    if "pi" in device:
+    if "pi" in DEVICE:
       self.pi = pigpio.pi()
       self.alloff()
     ActiveThread.__init__(self)
 
   def alloff(self):
-    self.redOn = False
-    self.greenOn = False
-    self.blueOn = False
+    self.redon = False
+    self.greenon = False
+    self.blueon = False
     self.pi.set_PWM_dutycycle(self.RED, 0)
     self.pi.set_PWM_dutycycle(self.BLUE, 0)
     self.pi.set_PWM_dutycycle(self.GREEN, 0)
 
-  def lightUp(self, rVal, gVal, bVal):
-    self.redOn = True
-    self.greenOn = True
-    self.blueOn = True
-    self.pi.set_PWM_dutycycle(self.RED, rVal)
-    self.pi.set_PWM_dutycycle(self.BLUE, gVal)
-    self.pi.set_PWM_dutycycle(self.GREEN, bVal)   
-
   def _dispatch(self, message):
     print message
-    if message[0] == "led_on":
-      rVal, gVal, bVal = message[1]
-      self.lightUp(rVal, gVal, bVal)
-    elif message[0] == "led_off":
-      self.alloff()
-    
 
 class PushButtonInterrupt(object):
   def __init__(self, commandcenter, inputport):
@@ -70,7 +60,7 @@ class PushButtonInterrupt(object):
     self.commandcenter = commandcenter
 
   def __enter__(self):
-    if "debug" not in device:
+    if "debug" not in DEVICE:
       GPIO.setmode(GPIO.BCM)
       GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_UP)
       GPIO.add_event_detect(
@@ -84,6 +74,7 @@ class PushButtonInterrupt(object):
     self.stop = False
 
   def waitkey(self, success):
+    print "waiting for raw input"
     raw_input()
     if self.debugging:
       print "Button pressed"
@@ -97,7 +88,7 @@ class PushButtonInterrupt(object):
   
   def signalreconnect(self):
     send(self.commandcenter, ["pushbutton", self.inputport])
-    if "debug" not in device:
+    if "debug" not in DEVICE:
       GPIO.add_event_detect(
           self.inputport,
           GPIO.FALLING,
@@ -107,8 +98,8 @@ class PushButtonInterrupt(object):
       self.add_keyb_event(self.signalreconnect)
 
   def __exit__(self, type, value, traceback):
-    if "debug" not in device:
-      GPIO.remove_event_detect(channel)
+    if "debug" not in DEVICE:
+      GPIO.remove_event_detect(self.inputport)
     else:
       self.debugging = False
 
@@ -117,6 +108,7 @@ class BluetoothConnectionCreator(ActiveThread):
       self, commandcenter, filepath, adverttimeout, silenttimeout, portnum):
     self.shelvefile = shelve.open(filepath)
     self.lastknown = self.shelvefile.setdefault("last", None)
+    self.shelvefile.sync()
     self.adverttimeout = adverttimeout
     self.silenttimeout = silenttimeout
     self.looping = False
@@ -140,43 +132,62 @@ class BluetoothConnectionCreator(ActiveThread):
   def advertise(self, server_sock):
     advertise_service(server_sock,
           "SpeedLight", 
-          service_classes = [SERIAL_PORT_CLASS],
+          service_classes = ["059c01eb-feaa-0e13-ffc4-f5d6f3be76d9"],
           profiles = [SERIAL_PORT_PROFILE],
           provider = "Fruitmill",
-          description= "Use this while driving to Live long and prosper.")
+          description= "Use this while driving to Live long and Prosper.")
 
   def stop_poll(self):
     with self.loopinglock:
       self.looping = False
     self.connectionThread.join()
+    
+  def handshake(self, client_sock):
+    try:
+      readable, writable, excepts = select([client_sock], [], [], 5)
+      if client_sock in readable:
+        data = client_sock.recv(1024)
+        h = uberhash(data)
+        client_sock.send(h)
+        readable, writable, excepts = select([client_sock], [], [], 5)
+        if client_sock in readable:
+          data = client_sock.recv(1024)
+          if uberhash(h) == data:
+            return True
+    except Exception:
+      print "Handshake failed."
+    client_sock.close()
+    return False
   
   def make_connection(self):
     server_sock = BluetoothSocket( RFCOMM )
     server_sock.setblocking(False)
     server_sock.bind(( " " , self.portnum))
     server_sock.listen(1)
+    self.advertise(server_sock)
+    print "advertising"
     with self.loopinglock:
       self.looping = True
     while self.looping:
       silent = self.silent
-      if not silent:
-        self.advertise(server_sock)
-        print "Advertized"
-      timeout = self.adverttimeout if not silent else self.silenttimeout
+      timeout = self.silenttimeout
       readable, writable, excepts = select([server_sock], [], [], timeout)
       if server_sock in readable:
         client_sock, client_info = server_sock.accept()
         client_sock.setblocking(False)
         if silent:
           if client_info == self.lastknown:
-            send(self.commandcenter, ["connected", client_sock])
+            if self.handshake(client_sock):
+              send(self.commandcenter, ["connected", client_sock])
           else:
+            client_sock.send("Im paired for life! But you know, you could still press that button. You know you want to.")
             client_sock.close()
         else:
-          send(self.commandcenter, ["connected", client_sock])
+          if self.handshake(client_sock):
+            send(self.commandcenter, ["connected", client_sock])
           self.shelvefile["last"] = client_info
-      if not silent:
-        stop_advertising(server_sock)
+          self.shelvefile.sync()
+      if not silent and self.shelvefile["last"]:
         with self.silentlock:
           self.silent = True
     server_sock.close()
@@ -211,17 +222,27 @@ class BluetoothCommunicator(ActiveThread):
       old_sock = self.client_sock
       self.client_sock = client_sock
       self.established = True
-    old_sock.close()
+    if old_sock:
+      old_sock.close()
 
   def get_and_transfer(self):
     while self.active:
       if self.established and self.client_sock != None:
+        print "established"
         with self.client_sock_lock:
           readable, writable, excepts = select([self.client_sock], [], [], 1)
           if self.client_sock in readable:
-            data = self.client_sock.recv(self.connectionsize)
-            if data:
-              send(self.commandcenter, ["execute", data])
+            print "reading data"
+            try:
+              data = self.client_sock.recv(self.connectionsize)
+              if data:
+                print "data received", data
+                send(self.commandcenter, ["execute", data])
+            except BluetoothError:
+              print "Device closed the socket"
+              self.established = False
+              self.client_sock.close()
+              self.client_sock = None
       time.sleep(0.01)
                
   def stop_working(self):
@@ -252,11 +273,11 @@ class CommandCenter(ActiveThread):
       send(self.LEDcon, ["die"])
     elif message[0] == "execute":
       data = json.loads(message[1])
-      for command in data:
+      for command in data["commands"]:
         if command == "die":
           send(self, ["die"])
         else:
-          send(self.LEDcon, [command, data[command]])
+          send(self.LEDcon, [command["command"], command["value"]])
     elif message[0] == "start":
       send(self.blcreator, ["start"])
       send(self.blcomm, ["start"])
