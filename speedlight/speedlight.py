@@ -190,6 +190,7 @@ class BluetoothConnectionCreator(ActiveThread):
           if self.handshake(client_sock):
             send(self.commandcenter, ["connected", client_sock])
           self.shelvefile["last"] = client_info
+          self.lastknown = client_info
           self.shelvefile.sync()
       if not silent and self.shelvefile["last"]:
         with self.silentlock:
