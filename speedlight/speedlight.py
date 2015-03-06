@@ -1,3 +1,301 @@
+<<<<<<< HEAD
+from bluetooth import *
+from select import *
+from threading import Thread, Lock
+import shelve, time, json
+from Queue import Queue
+
+device = sys.argv[1] if len(sys.argv) > 1 else "pi"
+if "pi" in device:
+  import RPi.GPIO as GPIO
+  import pigpio
+
+def send(receiver, message):
+  receiver.queue.put(message)
+
+class ActiveThread(Thread):
+  def __init__(self):
+    Thread.__init__(self)
+    self.name = str(type(self))
+    self.queue = Queue()
+    self._stop = False
+    self.setDaemon(True)
+    self.start()
+
+  def run(self):
+    while not self._stop:
+      message = self.queue.get()
+      print "Executing: ", message[0], type(self)
+      self._dispatch(message)
+      if message[0] == "die":
+        self._stop = True
+
+class LEDController(ActiveThread):
+  def __init__(self, red, green, blue):
+    self.BLUE = blue
+    self.RED = red
+    self.GREEN = green
+    if "pi" in device:
+      self.pi = pigpio.pi()
+      self.alloff()
+    ActiveThread.__init__(self)
+
+  def alloff(self):
+    self.redOn = False
+    self.greenOn = False
+    self.blueOn = False
+    self.pi.set_PWM_dutycycle(self.RED, 0)
+    self.pi.set_PWM_dutycycle(self.BLUE, 0)
+    self.pi.set_PWM_dutycycle(self.GREEN, 0)
+
+  def lightUp(self, rVal, gVal, bVal):
+    self.redOn = True
+    self.greenOn = True
+    self.blueOn = True
+    self.pi.set_PWM_dutycycle(self.RED, rVal)
+    self.pi.set_PWM_dutycycle(self.BLUE, gVal)
+    self.pi.set_PWM_dutycycle(self.GREEN, bVal)   
+
+  def _dispatch(self, message):
+    print message
+    if message[0] == "led_on":
+      rVal, gVal, bVal = message[1]
+      self.lightUp(rVal, gVal, bVal)
+    elif message[0] == "led_off":
+      self.alloff()
+    
+
+class PushButtonInterrupt(object):
+  def __init__(self, commandcenter, inputport):
+    self.inputport = inputport
+    self.commandcenter = commandcenter
+
+  def __enter__(self):
+    if "debug" not in device:
+      GPIO.setmode(GPIO.BCM)
+      GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+      GPIO.add_event_detect(
+          self.inputport,
+          GPIO.FALLING,
+          callback = self.signalreconnect,
+          bouncetime=200)
+    else:
+      self.debugging = True
+      self.add_keyb_event(self.signalreconnect)
+    self.stop = False
+
+  def waitkey(self, success):
+    raw_input()
+    if self.debugging:
+      print "Button pressed"
+      success()
+
+
+  def add_keyb_event(self, callback):
+    self.debugthread = Thread(target = self.waitkey, args = (callback,))
+    self.debugthread.setDaemon(True)
+    self.debugthread.start()
+  
+  def signalreconnect(self):
+    send(self.commandcenter, ["pushbutton", self.inputport])
+    if "debug" not in device:
+      GPIO.add_event_detect(
+          self.inputport,
+          GPIO.FALLING,
+          callback = self.signalreconnect,
+          bouncetime=200)
+    else:
+      self.add_keyb_event(self.signalreconnect)
+
+  def __exit__(self, type, value, traceback):
+    if "debug" not in device:
+      GPIO.remove_event_detect(channel)
+    else:
+      self.debugging = False
+
+class BluetoothConnectionCreator(ActiveThread):
+  def __init__(
+      self, commandcenter, filepath, adverttimeout, silenttimeout, portnum):
+    self.shelvefile = shelve.open(filepath)
+    self.lastknown = self.shelvefile.setdefault("last", None)
+    self.adverttimeout = adverttimeout
+    self.silenttimeout = silenttimeout
+    self.looping = False
+    self.loopinglock = Lock()
+    self.silent = self.lastknown != None
+    self.silentlock = Lock()
+    self.commandcenter = commandcenter
+    self.connectionThread = Thread(target=self.make_connection)
+    self.portnum = portnum
+    ActiveThread.__init__(self)
+
+  def _dispatch(self, message):
+    if message[0] == "die":
+      self.stop_poll()
+    elif message[0] == "loud":
+      self.loud_reconnect()
+    elif message[0] == "start":
+      self.connectionThread.setDaemon(True)
+      self.connectionThread.start()
+
+  def advertise(self, server_sock):
+    advertise_service(server_sock,
+          "SpeedLight", 
+          service_classes = [SERIAL_PORT_CLASS],
+          profiles = [SERIAL_PORT_PROFILE],
+          provider = "Fruitmill",
+          description= "Use this while driving to Live long and prosper.")
+
+  def stop_poll(self):
+    with self.loopinglock:
+      self.looping = False
+    self.connectionThread.join()
+  
+  def make_connection(self):
+    server_sock = BluetoothSocket( RFCOMM )
+    server_sock.setblocking(False)
+    server_sock.bind(( " " , self.portnum))
+    server_sock.listen(1)
+    with self.loopinglock:
+      self.looping = True
+    while self.looping:
+      silent = self.silent
+      if not silent:
+        self.advertise(server_sock)
+        print "Advertized"
+      timeout = self.adverttimeout if not silent else self.silenttimeout
+      readable, writable, excepts = select([server_sock], [], [], timeout)
+      if server_sock in readable:
+        client_sock, client_info = server_sock.accept()
+        client_sock.setblocking(False)
+        if silent:
+          if client_info == self.lastknown:
+            send(self.commandcenter, ["connected", client_sock])
+          else:
+            client_sock.close()
+        else:
+          send(self.commandcenter, ["connected", client_sock])
+          self.shelvefile["last"] = client_info
+      if not silent:
+        stop_advertising(server_sock)
+        with self.silentlock:
+          self.silent = True
+    server_sock.close()
+
+  def loud_reconnect(self):
+    with self.silentlock:
+      self.silent = False
+    print "Loud reconnect"
+
+class BluetoothCommunicator(ActiveThread):
+  def __init__(self, commandcenter, connectionsize):
+    self.client_sock = None
+    self.client_sock_lock = Lock()
+    self.established = False
+    self.active = True
+    self.connectionsize = connectionsize
+    self.commandcenter = commandcenter
+    self.transfer = Thread(target = self.get_and_transfer)
+    ActiveThread.__init__(self)
+
+  def _dispatch(self, message):
+    if message[0] == "die":
+      self.stop_working()
+    elif message[0] == "start":
+      self.transfer.setDaemon(True)
+      self.transfer.start()
+    elif message[0] == "connected":
+      self.swap_sock(message[1])
+
+  def swap_sock(self, client_sock):
+    with self.client_sock_lock:
+      old_sock = self.client_sock
+      self.client_sock = client_sock
+      self.established = True
+    old_sock.close()
+
+  def get_and_transfer(self):
+    while self.active:
+      if self.established and self.client_sock != None:
+        with self.client_sock_lock:
+          readable, writable, excepts = select([self.client_sock], [], [], 1)
+          if self.client_sock in readable:
+            data = self.client_sock.recv(self.connectionsize)
+            if data:
+              send(self.commandcenter, ["execute", data])
+      time.sleep(0.01)
+               
+  def stop_working(self):
+    self.active = False
+    self.transfer.join()
+    if self.established:
+      self.client_sock.close()
+      self.established = False
+  
+
+class CommandCenter(ActiveThread):
+  def __init__(self, pushbuttonport):
+    self.pushbuttonport = pushbuttonport
+    self.blcomm = None
+    self.blcreator = None
+    self.LEDcon = None
+    ActiveThread.__init__(self)
+
+  def register(self, blcomm, blcreator, LEDcon):
+    self.blcomm = blcomm
+    self.blcreator = blcreator
+    self.LEDcon = LEDcon
+
+  def _dispatch(self, message):
+    if message[0] == "die":
+      send(self.blcomm, ["die"])
+      send(self.blcreator, ["die"])
+      send(self.LEDcon, ["die"])
+    elif message[0] == "execute":
+      data = json.loads(message[1])
+      for command in data:
+        if command == "die":
+          send(self, ["die"])
+        else:
+          send(self.LEDcon, [command, data[command]])
+    elif message[0] == "start":
+      send(self.blcreator, ["start"])
+      send(self.blcomm, ["start"])
+    elif message[0] == "connected":
+      send(self.blcomm, message)
+    elif message[0] == "pushbutton":
+      if message[1] == self.pushbuttonport:
+        send(self.blcreator, ["loud"])
+
+
+PUSHBUTTONPORT = 23
+BLUE = 24
+RED = 17
+GREEN = 22
+CONNECTIONSIZE = 1024
+FILEPATH = "lastknown.shelve"
+ADVERTTIMEOUT = 20
+SILENTTIMEOUT = 1
+PORTNUM = 3
+BUTTONPUSHPORT = 23
+commandcenter = CommandCenter(PUSHBUTTONPORT)
+LEDcon = LEDController(RED, GREEN, BLUE)
+blcreator = BluetoothConnectionCreator(
+                commandcenter, FILEPATH, ADVERTTIMEOUT, SILENTTIMEOUT, PORTNUM)
+blcomm = BluetoothCommunicator(commandcenter, CONNECTIONSIZE)
+commandcenter.register(blcomm, blcreator, LEDcon)
+stop = False
+while not stop:
+  try:
+    with PushButtonInterrupt(commandcenter, BUTTONPUSHPORT) as pushb:
+      send(commandcenter, ["start"])
+    commandcenter.join()
+  except KeyboardInterrupt:
+    break
+send(commandcenter, ["die"])
+GPIO.cleanup()
+#Ssudo bluetoothd --compat -n -d 5&
+=======
 from bluetooth import *
 from select import *
 from threading import Thread, Lock
@@ -322,3 +620,4 @@ while not stop:
 send(commandcenter, ["die"])
 GPIO.cleanup()
 #Ssudo bluetoothd --compat -n -d 5&
+>>>>>>> 9c109076126699389209709f6c71dc8fe4562378
