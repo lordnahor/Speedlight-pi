@@ -51,8 +51,21 @@ class LEDController(ActiveThread):
     self.pi.set_PWM_dutycycle(self.BLUE, 0)
     self.pi.set_PWM_dutycycle(self.GREEN, 0)
 
+  def lightUp(self, rVal, gVal, bVal):
+    self.redOn = True
+    self.greenOn = True
+    self.blueOn = True
+    self.pi.set_PWM_dutycycle(self.RED, rVal)
+    self.pi.set_PWM_dutycycle(self.BLUE, gVal)
+    self.pi.set_PWM_dutycycle(self.GREEN, bVal)   
+
   def _dispatch(self, message):
     print message
+    if message[0] == "led_on":
+      rVal, gVal, bVal = message[1]
+      self.lightUp(rVal, gVal, bVal)
+    elif message[0] == "led_off":
+      self.alloff()
 
 class PushButtonInterrupt(object):
   def __init__(self, commandcenter, inputport):
@@ -279,11 +292,11 @@ class CommandCenter(ActiveThread):
       send(self.LEDcon, ["die"])
     elif message[0] == "execute":
       data = json.loads(message[1])
-      for command in data["commands"]:
+      for command in data:
         if command == "die":
           send(self, ["die"])
         else:
-          send(self.LEDcon, [command["command"], command["value"]])
+          send(self.LEDcon, [command, data[command]])
     elif message[0] == "start":
       send(self.blcreator, ["start"])
       send(self.blcomm, ["start"])
