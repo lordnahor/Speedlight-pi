@@ -192,12 +192,12 @@ class BluetoothConnectionCreator(ActiveThread):
           self.shelvefile.sync()
       if not silent and self.shelvefile["last"]:
         with self.silentlock:
+          print "going back to silent"
           self.silent = True
     server_sock.close()
 
   def loud_reconnect(self):
     with self.silentlock:
-      print "gong back to silent"
       self.silent = False
     print "Loud reconnect"
 
