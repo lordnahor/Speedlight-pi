@@ -162,7 +162,7 @@ class BluetoothConnectionCreator(ActiveThread):
         data = client_sock.recv(1024)
         h = uberhash(data)
         print "received: ", data, " sending: ", h
-        client_sock.send(h)
+        client_sock.send(h + "\0")
         readable, writable, excepts = select([client_sock], [], [], 5)
         if client_sock in readable:
           data = client_sock.recv(1024)
