@@ -109,9 +109,7 @@ class PushButtonInterrupt(object):
           GPIO.FALLING,
           callback = self.signalreconnect,
           bouncetime=200)
-    else:
-      self.add_keyb_event(self.signalreconnect)
-
+    
   def __exit__(self, type, value, traceback):
     if "debug" not in DEVICE:
       print "Stopping the detect"
