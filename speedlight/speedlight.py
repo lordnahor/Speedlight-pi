@@ -75,7 +75,7 @@ class PushButtonInterrupt(object):
   def __enter__(self):
     if "debug" not in DEVICE:
       GPIO.setmode(GPIO.BCM)
-      GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+      GPIO.setup(self.inputport, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
       GPIO.add_event_detect(
           self.inputport,
           GPIO.FALLING,
@@ -316,7 +316,6 @@ FILEPATH = "lastknown.shelve"
 ADVERTTIMEOUT = 20
 SILENTTIMEOUT = 1
 PORTNUM = 3
-BUTTONPUSHPORT = 23
 commandcenter = CommandCenter(PUSHBUTTONPORT)
 LEDcon = LEDController(RED, GREEN, BLUE)
 blcreator = BluetoothConnectionCreator(
@@ -326,7 +325,7 @@ commandcenter.register(blcomm, blcreator, LEDcon)
 stop = False
 while not stop:
   try:
-    with PushButtonInterrupt(commandcenter, BUTTONPUSHPORT) as pushb:
+    with PushButtonInterrupt(commandcenter, PUSHBUTTONPORT) as pushb:
       send(commandcenter, ["start"])
     commandcenter.join()
   except KeyboardInterrupt:
