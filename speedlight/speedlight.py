@@ -103,13 +103,9 @@ class PushButtonInterrupt(object):
   
   def signalreconnect(self, channel):
     send(self.commandcenter, ["pushbutton", channel])
-    if "debug" not in DEVICE:
-      GPIO.add_event_detect(
-          self.inputport,
-          GPIO.FALLING,
-          callback = self.signalreconnect,
-          bouncetime=200)
-    
+    if "debug" in DEVICE:
+      self.add_keyb_event(self.signalreconnect)
+
   def __exit__(self, type, value, traceback):
     if "debug" not in DEVICE:
       print "Stopping the detect"
