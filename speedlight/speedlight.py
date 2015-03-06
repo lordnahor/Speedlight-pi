@@ -330,7 +330,7 @@ while not stop:
   try:
     with PushButtonInterrupt(commandcenter, PUSHBUTTONPORT) as pushb:
       send(commandcenter, ["start"])
-    commandcenter.join()
+      commandcenter.join()
   except KeyboardInterrupt:
     break
 send(commandcenter, ["die"])
